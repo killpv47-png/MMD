@@ -37,5 +37,18 @@
         "created_at": 1780172773,
         "expire_seconds": 2592000,
         "active": true
+    },
+    "MR": {
+        "uuid": "0f47a5c2-2425-4808-bc71-7361dd63f342",
+        "total_limit_bytes": 38654705664,
+        "used_bytes": 26843545600,
+        "clean_ip": "172.64.149.23",
+        "status": "OFFLINE",
+        "last_active_time": 0,
+        "down_speed": 0,
+        "up_speed": 0,
+        "created_at": 1780173811,
+        "expire_seconds": 2592000,
+        "active": true
     }
 }
