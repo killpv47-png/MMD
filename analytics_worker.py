@@ -30,13 +30,15 @@ else:
     configs_db = {
         "Main_kill_pv2": {
             "uuid": "b6a00fb0-460e-4323-96af-3ba2f48470ee",
-            "total_limit_bytes": 429496729600,
+            "total_limit_bytes": 0,  # 0 یعنی نامحدود
             "used_bytes": 0,
             "clean_ip": "speed.cloudflare.com",
             "status": "OFFLINE",
             "last_active_time": 0,
             "down_speed": 0,
             "up_speed": 0,
+            "created_at": int(time.time()),
+            "expire_days": 365,
             "active": True
         }
     }
@@ -44,6 +46,32 @@ else:
 def save_database():
     with open(DB_PATH, 'w') as f:
         json.dump(configs_db, f, indent=4)
+
+def check_expiration_and_limits():
+    now = int(time.time())
+    changed = False
+    for u_name, u_data in configs_db.items():
+        if not u_data.get("active", True):
+            continue
+            
+        # بررسی اتمام حجم (اگر محدودیت فعال باشد و ترافیک رد شده باشد)
+        total_limit = u_data.get("total_limit_bytes", 0)
+        if total_limit > 0 and u_data["used_bytes"] >= total_limit:
+            configs_db[u_name]["active"] = False
+            configs_db[u_name]["status"] = "EXPIRED"
+            changed = True
+            
+        # بررسی تاریخ انقضا (بر حسب روز)
+        created_time = u_data.get("created_at", now)
+        expire_days = u_data.get("expire_days", 30)
+        if now - created_time > (expire_days * 86400):
+            configs_db[u_name]["active"] = False
+            configs_db[u_name]["status"] = "EXPIRED"
+            changed = True
+            
+    if changed:
+        save_database()
+        sync_xray_core()
 
 def sync_xray_core():
     clients = [{"id": u_data["uuid"], "email": u_name, "level": 0} for u_name, u_data in configs_db.items() if u_data.get("active", True)]
@@ -77,6 +105,7 @@ def sync_xray_core():
     subprocess.run(f"sudo nohup /usr/local/bin/xray -config {CONFIG_PATH} > /dev/null 2>&1 &", shell=True)
 
 def format_bytes(b):
+    if b == 0: return "نامحدود"
     if b >= 1024**3: return f"{b / (1024**3):.2f} GB"
     if b >= 1024**2: return f"{b / (1024**2):.2f} MB"
     if b >= 1024: return f"{b / 1024:.2f} KB"
@@ -122,20 +151,33 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
         action = params.get('action', [''])[0]
         if action == 'create':
             username = params.get('username', [''])[0].strip()
-            gb_limit = float(params.get('gb_limit', [400])[0])
+            is_unlimited = params.get('unlimited_volume', [''])[0] == 'true'
+            volume_val = float(params.get('volume_value', [0])[0] or 0)
+            volume_unit = params.get('volume_unit', ['GB'])[0]
+            expire_days = int(params.get('expire_days', [30])[0] or 30)
             clean_ip = params.get('clean_ip', ['speed.cloudflare.com'])[0].strip()
             if not clean_ip: clean_ip = "speed.cloudflare.com"
+            
+            if is_unlimited:
+                final_bytes = 0
+            else:
+                if volume_unit == 'GB':
+                    final_bytes = int(volume_val * 1024 * 1024 * 1024)
+                else:
+                    final_bytes = int(volume_val * 1024 * 1024)
             
             if username and username not in configs_db:
                 configs_db[username] = {
                     "uuid": str(uuid.uuid4()),
-                    "total_limit_bytes": int(gb_limit * 1024 * 1024 * 1024),
+                    "total_limit_bytes": final_bytes,
                     "used_bytes": 0,
                     "clean_ip": clean_ip,
                     "status": "OFFLINE",
                     "last_active_time": 0,
                     "down_speed": 0,
                     "up_speed": 0,
+                    "created_at": int(time.time()),
+                    "expire_days": expire_days,
                     "active": True
                 }
                 save_database()
@@ -145,6 +187,10 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             username = params.get('username', [''])[0]
             if username in configs_db:
                 configs_db[username]["active"] = not configs_db[username].get("active", True)
+                if configs_db[username]["active"]:
+                    # بازنشانی زمان برای فعال‌سازی مجدد
+                    configs_db[username]["created_at"] = int(time.time())
+                    configs_db[username]["status"] = "OFFLINE"
                 save_database()
                 sync_xray_core()
                 
@@ -171,23 +217,37 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             
+            # چک کردن سررسید حجم و روز کلاینت‌ها قبل بازگشت آمار زنده
+            check_expiration_and_limits()
+            
             response_data = []
             total_online = sum(1 for u in configs_db.values() if u.get("status") == "ONLINE" and u.get("active", True))
             
+            now = int(time.time())
             for k, v in configs_db.items():
                 total = v["total_limit_bytes"]
-                rem = max(0, total - v["used_bytes"])
+                rem = max(0, total - v["used_bytes"]) if total > 0 else 0
                 pct = min(100, (v["used_bytes"] / total * 100)) if total > 0 else 0
                 c_ip = v.get("clean_ip", DEFAULT_CLEAN_IP)
                 
+                # محاسبه روزهای باقی‌مانده
+                passed_seconds = now - v.get("created_at", now)
+                total_seconds = v.get("expire_days", 30) * 86400
+                rem_days = max(0, (total_seconds - passed_seconds) / 86400)
+                
                 vless_config_str = f"vless://{v['uuid']}@{c_ip}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{k}_killpv2"
+                
+                status_label = v["status"]
+                if not v.get("active", True):
+                    status_label = "EXPIRED" if v["status"] == "EXPIRED" else "DISABLED"
                 
                 response_data.append({
                     "username": k,
-                    "status": v["status"] if v.get("active", True) else "DISABLED",
+                    "status": status_label,
                     "used": format_bytes(v["used_bytes"]),
                     "total": format_bytes(total) if total > 0 else "نامحدود",
                     "remaining": format_bytes(rem) if total > 0 else "نامحدود",
+                    "rem_days": f"{rem_days:.1f} روز",
                     "progress": pct,
                     "down_speed": format_speed(v.get("down_speed", 0)),
                     "up_speed": format_speed(v.get("up_speed", 0)),
@@ -221,7 +281,6 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()
-            
             err_msg = '<div style="color:#f87171; text-align:center; margin-bottom:10px; font-size:0.85rem;">❌ رمز عبور اشتباه است داداش</div>' if "error=true" in self.path else ''
             
             login_html = f"""
@@ -287,6 +346,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     .bg-online {{ background: rgba(16,185,129,0.15); color: #34d399; }}
                     .bg-offline {{ background: rgba(239,68,68,0.15); color: #f87171; }}
                     .bg-disabled {{ background: #334155; color: #94a3b8; }}
+                    .bg-expired {{ background: rgba(239,68,68,0.3); color: #fca5a5; border: 1px dashed #ef4444; }}
                     .data-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 0.8rem; color: var(--text-p); border-top: 1px solid #273659; padding-top: 8px; }}
                     .p-bar-bg {{ width: 100%; background: #2d3d5f; height: 6px; border-radius: 10px; margin-top: 6px; overflow: hidden; }}
                     .p-bar-fill {{ background: var(--accent); height: 100%; width: 0%; transition: width 0.4s; }}
@@ -294,7 +354,9 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     .action-bar button, .action-bar a {{ flex: 1; min-width: 70px; text-align: center; padding: 8px 4px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; border: none; cursor: pointer; color: white; }}
                     .btn-sub {{ background: #3b82f6; }} .btn-conf {{ background: #8b5cf6; }} .btn-tog {{ background: #f59e0b; color: black; }} .btn-del {{ background: #ef4444; }}
                     .scanner-area {{ display: none; background: #111827; border: 1px dashed #4b5563; border-radius: 12px; padding: 12px; margin-top: 10px; }}
-                    .ip-list-output {{ width: 100%; height: 80px; background: #030712; color: #10b981; font-family: monospace; font-size: 0.8rem; padding: 6px; border-radius: 8px; border: 1px solid #1f2937; margin-top: 8px; box-sizing: border-box; }}
+                    .ip-list-output {{ width: 100%; height: 150px; background: #030712; color: #10b981; font-family: monospace; font-size: 0.8rem; padding: 6px; border-radius: 8px; border: 1px solid #1f2937; margin-top: 8px; box-sizing: border-box; }}
+                    .flex-input {{ display: flex; gap: 8px; margin-bottom: 10px; }}
+                    .flex-input select {{ background: #0b0f19; color: white; border: 1px solid #2d3d5f; border-radius: 10px; padding: 0 10px; outline: none; font-size:0.9rem; }}
                 </style>
                 <script>
                     let cachedConfigs = {{}};
@@ -309,11 +371,14 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                                 let row = document.getElementById('u_' + u.username);
                                 if(row) {{
                                     let badge = row.querySelector('.badge');
-                                    badge.innerText = u.status === 'ONLINE' ? '🟢 آنلاین' : (u.status === 'DISABLED' ? '⚫ غیرفعال' : '🔴 آفلاین');
-                                    badge.className = 'badge ' + (u.status === 'ONLINE' ? 'bg-online' : (u.status === 'DISABLED' ? 'bg-disabled' : 'bg-offline'));
+                                    if (u.status === 'ONLINE') {{ badge.innerText = '🟢 آنلاین'; badge.className = 'badge bg-online'; }}
+                                    else if (u.status === 'OFFLINE') {{ badge.innerText = '🔴 آفلاین'; badge.className = 'badge bg-offline'; }}
+                                    else if (u.status === 'EXPIRED') {{ badge.innerText = '⏳ تمام شده'; badge.className = 'badge bg-expired'; }}
+                                    else {{ badge.innerText = '⚫ غیرفعال'; badge.className = 'badge bg-disabled'; }}
                                     
                                     row.querySelector('.u-used').innerText = u.used;
                                     row.querySelector('.u-rem').innerText = u.remaining;
+                                    row.querySelector('.u-days').innerText = u.rem_days;
                                     row.querySelector('.u-dspeed').innerText = u.down_speed;
                                     row.querySelector('.u-uspeed').innerText = u.up_speed;
                                     row.querySelector('.p-bar-fill').style.width = u.progress + '%';
@@ -331,10 +396,31 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                         }}
                     }}
 
-                    const cleanIpsToTest = [
-                        "speed.cloudflare.com", "104.16.123.96", "104.17.3.81", "104.18.2.14", 
-                        "172.67.143.125", "104.21.43.201", "162.159.135.42", "172.64.149.23"
+                    function toggleUnlimitedVolume(checkbox) {{
+                        const vInput = document.getElementById('volume_value_input');
+                        const vUnit = document.getElementById('volume_unit_select');
+                        if (checkbox.checked) {{
+                            vInput.disabled = true;
+                            vInput.placeholder = "حجم نامحدود فعال شد";
+                            vInput.value = "";
+                        }} else {{
+                            vInput.disabled = false;
+                            vInput.placeholder = "میزان حجم مجاز";
+                            vInput.value = "400";
+                        }}
+                    }}
+
+                    // تولید رنج‌های تمیز کلودفلر تا نزدیک ۵۰۰ آی‌پی برای اینترنت ایران
+                    const cleanIpsToTest = [];
+                    const baseSubnets = [
+                        "104.16.123.", "104.17.3.", "104.18.2.", "172.67.143.", "104.21.43.", 
+                        "162.159.135.", "172.64.149.", "104.16.50.", "104.17.51.", "104.19.60."
                     ];
+                    baseSubnets.forEach(subnet => {{
+                        for(let i = 10; i <= 55; i += 1) {{
+                            cleanIpsToTest.push(subnet + i);
+                        }}
+                    }});
 
                     async function startWebPingTest() {{
                         const btn = document.getElementById('ping_btn');
@@ -342,22 +428,28 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                         const statusText = document.getElementById('ping_status_text');
                         btn.disabled = true;
                         output.value = "";
-                        let workingIps = [];
+                        let workingCount = 0;
 
-                        for(let i=0; i<cleanIpsToTest.length; i++) {{
-                            let ip = cleanIpsToTest[i];
-                            statusText.innerText = "⏳ در حال بررسی پینگ: " + ip + "...";
-                            let start = Date.now();
-                            try {{
-                                let controller = new AbortController();
-                                setTimeout(() => controller.abort(), 1800);
-                                await fetch('https://' + ip + '/cdn-cgi/trace', {{ mode: 'no-cors', signal: controller.signal }});
-                                let duration = Date.now() - start;
-                                workingIps.push(ip);
-                                output.value += ip + " (Ping: " + duration + "ms)\\n";
-                            }} catch(e) {{}}
+                        statusText.innerText = "⏳ شروع تست روی جادوی ۵۰۰ آی‌پی تمیز کلودفلر...";
+                        
+                        // تست موازی دسته‌های ۱۰ تایی برای بالا رفتن سرعت لود
+                        for(let i=0; i<cleanIpsToTest.length; i+=10) {{
+                            let slice = cleanIpsToTest.slice(i, i+10);
+                            statusText.innerText = "🛰️ در حال پینگ گرفتن کلاستر آی‌پی‌ها (" + i + " / " + cleanIpsToTest.length + ")...";
+                            
+                            await Promise.all(slice.map(async (ip) => {{
+                                let start = Date.now();
+                                try {{
+                                    let controller = new AbortController();
+                                    setTimeout(() => controller.abort(), 1200);
+                                    await fetch('https://' + ip + '/cdn-cgi/trace', {{ mode: 'no-cors', signal: controller.signal }});
+                                    let duration = Date.now() - start;
+                                    workingCount++;
+                                    output.value += ip + " -> " + duration + "ms\\n";
+                                }} catch(e) {{}}
+                            }}));
                         }}
-                        statusText.innerText = "✅ تست تمام شد داداش! آی‌پی‌های تمیز بالا لیست شدند.";
+                        statusText.innerText = "✅ تست ۵۰۰ تایی تموم شد داداش! تعداد آی‌پی فعال: " + workingCount;
                         btn.disabled = false;
                     }}
 
@@ -376,13 +468,13 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                         <div class="status-box">کاربران متصل زنده: <span id="online_count" style="color:#6ee7b7; font-weight:bold;">0</span></div>
                     </div>
 
-                    <button class="btn btn-scanner-toggle" onclick="toggleScanner()">🔍 تست و یافتن آی‌پی‌های تمیز زنده</button>
+                    <button class="btn btn-scanner-toggle" onclick="toggleScanner()">🔍 تست شبکه زنده (۵۰۰ آی‌پی فوق تمیز)</button>
                     
                     <div class="card scanner-area" id="scanner_box">
-                        <h4 style="color:#a7f3d0; margin-top:0;">📡 ابزار سنجش پینگ زنده کلودفلر</h4>
-                        <button class="btn" id="ping_btn" style="background:#4c1d95;" onclick="startWebPingTest()">▶️ شروع تست پینگ</button>
-                        <div id="ping_status_text" style="font-size:0.8rem; color:#f59e0b; margin-top:8px; text-align:center;">آماده برای شروع...</div>
-                        <textarea id="good_ips_box" class="ip-list-output" readonly placeholder="آی‌پی‌های پاسخگو اینجا لیست می‌شوند داداش..."></textarea>
+                        <h4 style="color:#a7f3d0; margin-top:0;">📡 اسکنر پینگ پرقدرت شبکه کلودفلر</h4>
+                        <button class="btn" id="ping_btn" style="background:#4c1d95;" onclick="startWebPingTest()">▶️ شروع پینگ سیکل ترکیبی</button>
+                        <div id="ping_status_text" style="font-size:0.8rem; color:#f59e0b; margin-top:8px; text-align:center;">آماده برای استارت...</div>
+                        <textarea id="good_ips_box" class="ip-list-output" readonly placeholder="آی‌پی‌های تمیز متصل به شبکه کشور اینجا چیده میشن داداش..."></textarea>
                     </div>
 
                     <div class="card">
@@ -390,7 +482,20 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                         <form method="POST" action="/">
                             <input type="hidden" name="action" value="create">
                             <input type="text" name="username" class="form-control" placeholder="نام کاربری (انگلیسی)" required>
-                            <input type="number" step="1" name="gb_limit" class="form-control" placeholder="میزان حجم مجاز (گیگابایت)" value="400" required>
+                            
+                            <div style="margin-bottom:10px; font-size:0.85rem; color:#6ee7b7;">
+                                <label><input type="checkbox" name="unlimited_volume" value="true" onchange="toggleUnlimitedVolume(this)"> ♾️ فعال‌سازی حجم نامحدود برای کاربر</label>
+                            </div>
+
+                            <div class="flex-input">
+                                <input type="number" step="0.1" name="volume_value" id="volume_value_input" class="form-control" placeholder="میزان حجم مجاز" value="400" style="margin-bottom:0; flex:2;">
+                                <select name="volume_unit" id="volume_unit_select">
+                                    <option value="GB">GB</option>
+                                    <option value="MB">MB</option>
+                                </select>
+                            </div>
+
+                            <input type="number" step="1" name="expire_days" class="form-control" placeholder="مدت اعتبار به روز (مثلا: 30)" value="30" required>
                             <input type="text" name="clean_ip" class="form-control" placeholder="آی‌پی تمیز کلودفلر (پیش‌فرض: speed.cloudflare.com)">
                             <button type="submit" class="btn btn-add">⚡ ایجاد کانفیگ و ریلود پایدار</button>
                         </form>
@@ -404,7 +509,9 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             for user_name, user_data in configs_db.items():
                 is_active = user_data.get("active", True)
                 status_class = "bg-disabled" if not is_active else ("bg-online" if user_data["status"] == "ONLINE" else "bg-offline")
+                if user_data.get("status") == "EXPIRED": status_class = "bg-expired"
                 status_text = "⚫ غیرفعال" if not is_active else ("🟢 آنلاین" if user_data["status"] == "ONLINE" else "🔴 آفلاین")
+                if user_data.get("status") == "EXPIRED": status_text = "⏳ تمام شده"
                 
                 html_content += f"""
                             <div class="user-row" id="u_{user_name}">
@@ -415,6 +522,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                                 <div class="data-grid">
                                     <div>مصرف: <span class="u-used">0 B</span></div>
                                     <div>باقی‌مانده: <span class="u-rem">0 B</span></div>
+                                    <div>زمان مانده: <span class="u-days">0 روز</span></div>
                                     <div>⬇️ دانلود: <span class="u-dspeed" style="color:#6ee7b7;">0 KB/s</span></div>
                                     <div>⬆️ آپلود: <span class="u-uspeed" style="color:#38bdf8;">0 KB/s</span></div>
                                 </div>
@@ -469,7 +577,7 @@ def xray_live_log_sniffer():
                         configs_db[u_name]["up_speed"] = 0
                         changed = True
                 if now - u_data.get("last_active_time", 0) > 40:
-                    if u_data["status"] != "OFFLINE":
+                    if u_data["status"] != "OFFLINE" and u_data["status"] != "EXPIRED":
                         configs_db[u_name]["status"] = "OFFLINE"
                         changed = True
             if changed:
@@ -485,14 +593,15 @@ def xray_live_log_sniffer():
 
         for user_name in list(configs_db.keys()):
             if user_name in line or configs_db[user_name]["uuid"] in line:
-                now = time.time()
-                configs_db[user_name]["status"] = "ONLINE"
-                configs_db[user_name]["last_active_time"] = now
-                
-                configs_db[user_name]["used_bytes"] += 16384 
-                configs_db[user_name]["down_speed"] = secrets.randbelow(350000) + 150000
-                configs_db[user_name]["up_speed"] = secrets.randbelow(80000) + 20000
-                save_database()
+                if configs_db[user_name].get("active", True):
+                    now = time.time()
+                    configs_db[user_name]["status"] = "ONLINE"
+                    configs_db[user_name]["last_active_time"] = now
+                    
+                    configs_db[user_name]["used_bytes"] += 16384 
+                    configs_db[user_name]["down_speed"] = secrets.randbelow(350000) + 150000
+                    configs_db[user_name]["up_speed"] = secrets.randbelow(80000) + 20000
+                    save_database()
 
 sync_xray_core()
 threading.Thread(target=lambda: HTTPServer(('127.0.0.1', 8086), SanaeiMobileXuiServer).serve_forever(), daemon=True).start()
