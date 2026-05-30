@@ -26,31 +26,24 @@ USER_TARGET_SITES = {}
 with open('active_edge_host.txt', 'r') as f:
     tunnel_host = f.read().strip()
 
-# بازیابی پایگاه داده قدیمی یا ساخت دیتابیس اولیه
 if os.path.exists(DB_PATH):
-    try:
-        with open(DB_PATH, 'r') as f:
-            configs_db = json.load(f)
-        print("💾 Database recovered successfully from previous execution cycle.")
-    except Exception:
-        configs_db = {}
+    with open(DB_PATH, 'r') as f:
+        configs_db = json.load(f)
 else:
-    configs_db = {}
-
-# اطمینان از وجود کلاینت پیشفرض در صورت خالی بودن دیتابیس
-if "Main_kill_pv2" not in configs_db:
-    configs_db["Main_kill_pv2"] = {
-        "uuid": "b6a00fb0-460e-4323-96af-3ba2f48470ee",
-        "total_limit_bytes": 0,
-        "used_bytes": 0,
-        "clean_ip": "speed.cloudflare.com",
-        "status": "OFFLINE",
-        "last_active_time": 0,
-        "down_speed": 0,
-        "up_speed": 0,
-        "created_at": int(time.time()),
-        "expire_seconds": 31536000, 
-        "active": True
+    configs_db = {
+        "Main_kill_pv2": {
+            "uuid": "b6a00fb0-460e-4323-96af-3ba2f48470ee",
+            "total_limit_bytes": 0,
+            "used_bytes": 0,
+            "clean_ip": "speed.cloudflare.com",
+            "status": "OFFLINE",
+            "last_active_time": 0,
+            "down_speed": 0,
+            "up_speed": 0,
+            "created_at": int(time.time()),
+            "expire_seconds": 31536000, 
+            "active": True
+        }
     }
 
 def save_database():
@@ -85,17 +78,26 @@ def sync_xray_core():
     clients = [{"id": u_data["uuid"], "email": u_name, "level": 0} for u_name, u_data in configs_db.items() if u_data.get("active", True)]
     
     xray_json_config = {
-        "log": {"loglevel": "info", "access": XRAY_LOG_PATH, "error": XRAY_LOG_PATH},
-        "inbounds": [{
-            "port": 8085,
-            "protocol": "vless",
-            "settings": {"clients": clients, "decryption": "none"},
-            "streamSettings": {
-                "network": "ws", 
-                "wsSettings": {"path": "/killpv2"}
-            },
-            "sniffing": {"enabled": True, "destOverride": ["http", "tls"]}
-        }],
+        "log": {
+            "loglevel": "info",
+            "access": XRAY_LOG_PATH,
+            "error": XRAY_LOG_PATH
+        },
+        "inbounds": [
+            {
+                "port": 8085,
+                "protocol": "vless",
+                "settings": {"clients": clients, "decryption": "none"},
+                "streamSettings": {
+                    "network": "ws", 
+                    "wsSettings": {"path": "/killpv2"}
+                },
+                "sniffing": {
+                    "enabled": True, 
+                    "destOverride": ["http", "tls"]
+                }
+            }
+        ],
         "outbounds": [{"protocol": "freedom", "tag": "direct_out"}]
     }
     
@@ -157,13 +159,6 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             volume_val = float(params.get('volume_value', [0])[0] or 0)
             volume_unit = params.get('volume_unit', ['GB'])[0]
             
-            pre_used_val = float(params.get('pre_used_value', [0])[0] or 0)
-            pre_used_unit = params.get('pre_used_unit', ['GB'])[0]
-            if pre_used_unit == 'GB':
-                pre_used_bytes = int(pre_used_val * 1024 * 1024 * 1024)
-            else:
-                pre_used_bytes = int(pre_used_val * 1024 * 1024)
-
             expire_days = int(params.get('expire_days', [0])[0] or 0)
             expire_hours = int(params.get('expire_hours', [0])[0] or 0)
             total_seconds = (expire_days * 86400) + (expire_hours * 3600)
@@ -184,7 +179,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                 configs_db[username] = {
                     "uuid": str(uuid.uuid4()),
                     "total_limit_bytes": final_bytes,
-                    "used_bytes": pre_used_bytes,
+                    "used_bytes": 0,
                     "clean_ip": clean_ip,
                     "status": "OFFLINE",
                     "last_active_time": 0,
@@ -233,6 +228,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             self.end_headers()
             
             check_expiration_and_limits()
+            
             response_data = []
             total_online = sum(1 for u in configs_db.values() if u.get("status") == "ONLINE" and u.get("active", True))
             
@@ -243,15 +239,21 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                 pct = min(100, (v["used_bytes"] / total * 100)) if total > 0 else 0
                 
                 passed_seconds = now - v.get("created_at", now)
-                rem_seconds = max(0, v.get("expire_seconds", 2592000) - passed_seconds)
+                total_seconds = v.get("expire_seconds", 2592000)
+                rem_seconds = max(0, total_seconds - passed_seconds)
+                
                 rem_d = int(rem_seconds // 86400)
                 rem_h = int((rem_seconds % 86400) // 3600)
                 
                 vless_config_str = f"vless://{v['uuid']}@{v.get('clean_ip', DEFAULT_CLEAN_IP)}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{k}_killpv2"
                 
+                status_label = v["status"]
+                if not v.get("active", True):
+                    status_label = "EXPIRED" if v["status"] == "EXPIRED" else "DISABLED"
+                
                 response_data.append({
                     "username": k,
-                    "status": v["status"] if v.get("active", True) else ("EXPIRED" if v["status"] == "EXPIRED" else "DISABLED"),
+                    "status": status_label,
                     "used": format_bytes(v["used_bytes"]),
                     "total": format_bytes(total) if total > 0 else "نامحدود",
                     "remaining": format_bytes(rem) if total > 0 else "نامحدود",
@@ -263,20 +265,24 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     "destinations": USER_TARGET_SITES.get(k, [])[-12:]
                 })
             
-            self.wfile.write(json.dumps({"total_online": total_online, "users": response_data, "sys_logs": SYSTEM_LIVE_LOGS[-30:]}).encode('utf-8'))
+            final_payload = {
+                "total_online": total_online, 
+                "users": response_data, 
+                "sys_logs": SYSTEM_LIVE_LOGS[-30:]
+            }
+            self.wfile.write(json.dumps(final_payload).encode('utf-8'))
             return
 
         if url_path.startswith("sub/"):
             target_user = url_path.replace("sub/", "", 1)
-            if target_user in configs_db:
+            if target_user in configs_db and configs_db[target_user].get("active", True):
                 u_data = configs_db[target_user]
-                check_expiration_and_limits()
                 c_ip = u_data.get("clean_ip", DEFAULT_CLEAN_IP)
+                clean_link = f"vless://{u_data['uuid']}@{c_ip}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{target_user}_Clean"
+                regular_link = f"vless://{u_data['uuid']}@{tunnel_host}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0#{target_user}_Direct"
+                payload = f"{clean_link}\n{regular_link}\n"
                 
-                clean_link = f"vless://{u_data['uuid']}@{c_ip}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{target_user}_killpv2"
-                
-                encoded_payload = base64.b64encode(f"{clean_link}\n".encode('utf-8')).decode('utf-8')
-                
+                encoded_payload = base64.b64encode(payload.encode('utf-8')).decode('utf-8')
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/plain; charset=utf-8')
                 self.end_headers()
@@ -347,6 +353,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     .form-control {{ width: 100%; padding: 10px; background: #0b0f19; border: 1px solid #2d3d5f; border-radius: 10px; color: #fff; margin-bottom: 10px; box-sizing: border-box; font-size: 0.9rem; outline: none; }}
                     .btn {{ width: 100%; padding: 11px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 0.95rem; }}
                     .btn-add {{ background: #10b981; color: white; }}
+                    .btn-scanner-toggle {{ background: #8b5cf6; color: white; margin-bottom: 15px; width: 100%; padding: 11px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 0.95rem; }}
                     .user-row {{ background: #1a243d; border-radius: 12px; padding: 12px; margin-bottom: 10px; border: 1px solid #273659; cursor: pointer; transition: 0.2s; }}
                     .user-row:hover {{ border-color: #3b82f6; }}
                     .user-flex {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }}
@@ -360,8 +367,10 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     .p-bar-bg {{ width: 100%; background: #2d3d5f; height: 6px; border-radius: 10px; margin-top: 6px; overflow: hidden; }}
                     .p-bar-fill {{ background: var(--accent); height: 100%; width: 0%; transition: width 0.4s; }}
                     .action-bar {{ display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }}
-                    .action-bar button {{ flex: 1; min-width: 65px; text-align: center; padding: 8px 4px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; border: none; cursor: pointer; color: white; }}
+                    .action-bar button, .action-bar a {{ flex: 1; min-width: 65px; text-align: center; padding: 8px 4px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; border: none; cursor: pointer; color: white; }}
                     .btn-sub {{ background: #3b82f6; }} .btn-conf {{ background: #8b5cf6; }} .btn-tog {{ background: #f59e0b; color: black; }} .btn-del {{ background: #ef4444; }}
+                    .scanner-area {{ display: none; background: #111827; border: 1px dashed #4b5563; border-radius: 12px; padding: 12px; margin-top: 10px; }}
+                    .ip-list-output {{ width: 100%; height: 120px; background: #030712; color: #10b981; font-family: monospace; font-size: 0.8rem; padding: 6px; border-radius: 8px; border: 1px solid #1f2937; margin-top: 8px; box-sizing: border-box; }}
                     .flex-input {{ display: flex; gap: 8px; margin-bottom: 10px; }}
                     .flex-input select, .flex-input input {{ background: #0b0f19; color: white; border: 1px solid #2d3d5f; border-radius: 10px; padding: 10px; outline: none; font-size:0.9rem; box-sizing: border-box; }}
                     .terminal-box {{ background: #020617; border: 1px solid #1e293b; border-radius: 12px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.78rem; padding: 10px; color: #cbd5e1; direction: ltr; text-align: left; }}
@@ -381,7 +390,9 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                             const term = document.getElementById('sys_terminal');
                             let isScrolledDown = term.scrollHeight - term.clientHeight <= term.scrollTop + 20;
                             term.innerHTML = "";
-                            data.sys_logs.forEach(l => {{ term.innerHTML += "<div class='log-line'>" + l + "</div>"; }});
+                            data.sys_logs.forEach(l => {{
+                                term.innerHTML += "<div class='log-line'>" + l + "</div>";
+                            }});
                             if (isScrolledDown) term.scrollTop = term.scrollHeight;
 
                             data.users.forEach(u => {{
@@ -404,7 +415,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
 
                                     if(selectedUserFilter === u.username) {{
                                         const sniperBox = document.getElementById('user_sniper_logs');
-                                        sniperBox.innerHTML = u.destinations.length === 0 ? "در حال انتظار..." : "";
+                                        sniperBox.innerHTML = u.destinations.length === 0 ? "در حال انتظار برای دریافت پکت داده..." : "";
                                         u.destinations.forEach(dst => {{
                                             sniperBox.innerHTML += "<div style='color:#38bdf8; margin:3px 0;'>🌐 -> " + dst + "</div>";
                                         }});
@@ -419,21 +430,23 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                             let prevRow = document.getElementById('u_' + selectedUserFilter);
                             if(prevRow) prevRow.classList.remove('target-active-user');
                         }}
+                        
                         if(selectedUserFilter === username) {{
                             selectedUserFilter = null;
-                            document.getElementById('sniper_title').innerText = "🔍 مانیتورینگ دامنه کلاینت";
-                            document.getElementById('user_sniper_logs').innerHTML = "روی ردیف کلاینت کلیک کن داداش.";
+                            document.getElementById('sniper_title').innerText = "🔍 مانیتورینگ دامنه کلاینت (روی کلاینت کلیک کن)";
+                            document.getElementById('user_sniper_logs').innerHTML = "داداش روی ردیف هر کلاینتی که می‌خواهی کلیک کنی، دامنه سایت‌هایی که میره اینجا لیست میشه.";
                         }} else {{
                             selectedUserFilter = username;
                             document.getElementById('u_' + username).classList.add('target-active-user');
                             document.getElementById('sniper_title').innerText = "🛰️ دامنه‌های باز شده توسط " + username;
+                            document.getElementById('user_sniper_logs').innerHTML = "در حال تحلیل ترافیک زنده کلاینت...";
                         }}
                     }}
 
                     function copyConfig(user) {{
                         if(cachedConfigs[user]) {{
                             navigator.clipboard.writeText(cachedConfigs[user]);
-                            alert('📋 کانفیگ کپی شد داداش!');
+                            alert('📋 کانفیگ VLESS با موفقیت کپی شد داداش!');
                         }}
                     }}
 
@@ -450,6 +463,48 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                         }}
                     }}
 
+                    const cleanIpsToTest = [];
+                    const baseSubnets = [
+                        "104.16.123.", "104.17.3.", "104.18.2.", "172.67.143.", "104.21.43.", 
+                        "162.159.135.", "172.64.149.", "104.16.50.", "104.17.51.", "104.19.60."
+                    ];
+                    baseSubnets.forEach(subnet => {{
+                        for(let i = 10; i <= 55; i += 1) {{ cleanIpsToTest.push(subnet + i); }}
+                    }});
+
+                    async function startWebPingTest() {{
+                        const btn = document.getElementById('ping_btn');
+                        const output = document.getElementById('good_ips_box');
+                        const statusText = document.getElementById('ping_status_text');
+                        btn.disabled = true;
+                        output.value = "";
+                        let workingCount = 0;
+                        statusText.innerText = "⏳ شروع تست روی جادوی ۵۰۰ آی‌پی تمیز کلودفلر...";
+                        
+                        for(let i=0; i<cleanIpsToTest.length; i+=10) {{
+                            let slice = cleanIpsToTest.slice(i, i+10);
+                            statusText.innerText = "🛰️ در حال پینگ گرفتن کلاستر آی‌پی‌ها (" + i + " / " + cleanIpsToTest.length + ")...";
+                            await Promise.all(slice.map(async (ip) => {{
+                                let start = Date.now();
+                                try {{
+                                    let controller = new AbortController();
+                                    setTimeout(() => controller.abort(), 1200);
+                                    await fetch('https://' + ip + '/cdn-cgi/trace', {{ mode: 'no-cors', signal: controller.signal }});
+                                    let duration = Date.now() - start;
+                                    workingCount++;
+                                    output.value += ip + " -> " + duration + "ms\\n";
+                                }} catch(e) {{}}
+                            }}));
+                        }}
+                        statusText.innerText = "✅ تست تمام شد! تعداد آی‌پی فعال: " + workingCount;
+                        btn.disabled = false;
+                    }}
+
+                    function toggleScanner() {{
+                        const box = document.getElementById('scanner_box');
+                        box.style.display = box.style.display === 'block' ? 'none' : 'block';
+                    }}
+
                     setInterval(loadLiveStats, 2000);
                 </script>
             </head>
@@ -460,10 +515,20 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                         <div class="status-box">کاربران متصل زنده: <span id="online_count" style="color:#6ee7b7; font-weight:bold;">0</span></div>
                     </div>
 
+                    <button class="btn-scanner-toggle" onclick="toggleScanner()">🔎 باز کردن اسکنر داخلی آی‌پی تمیز کلودفلر</button>
+                    
+                    <div id="scanner_box" class="card scanner-area">
+                        <h4 style="margin-top:0; color:#8b5cf6;">🛰️ کلاستر پینگ وب اختصاصی کلاینت</h4>
+                        <p style="font-size:0.8rem; color:#94a3b8; margin:0 0 10px 0;">تست پینگ مستقیم و سریع روی رنج کلاسترهای تمیز کلودفلر برای استفاده در کانفیگ‌ها:</p>
+                        <button id="ping_btn" class="btn" style="background:#8b5cf6;" onclick="startWebPingTest()">⚡ شروع اسکن زنده شبکه</button>
+                        <div id="ping_status_text" style="font-size:0.8rem; color:#f59e0b; margin-top:6px; font-weight:bold;">وضعیت: آماده به کار</div>
+                        <textarea id="good_ips_box" class="ip-list-output" placeholder="آی‌پی‌های پاسخ‌دهنده و فعال اینجا لیست می‌شوند داداش..."></textarea>
+                    </div>
+
                     <div class="card" style="border: 1px solid #1e3a8a; background: #0f172a;">
-                        <h4 id="sniper_title" style="color:#60a5fa; margin-top:0;">🔍 مانیتورینگ دامنه کلاینت</h4>
+                        <h4 id="sniper_title" style="color:#60a5fa; margin-top:0;">🔍 مانیتورینگ دامنه کلاینت (روی کلاینت کلیک کن)</h4>
                         <div id="user_sniper_logs" style="font-family:monospace; font-size:0.82rem; color:#94a3b8; max-height:100px; overflow-y:auto;">
-                            روی کلاینت کلیک کن تا سایت‌های باز شده را ببینی داداش.
+                            داداش روی ردیف هر کلاینتی که می‌خواهی کلیک کنی، دامنه سایت‌هایی که میره اینجا لیست میشه.
                         </div>
                     </div>
 
@@ -480,14 +545,6 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                             <div class="flex-input">
                                 <input type="number" step="0.1" name="volume_value" id="volume_value_input" class="form-control" placeholder="میزان حجم مجاز" value="400" style="margin-bottom:0; flex:2;">
                                 <select name="volume_unit" id="volume_unit_select" style="flex:1;">
-                                    <option value="GB">GB</option>
-                                    <option value="MB">MB</option>
-                                </select>
-                            </div>
-
-                            <div class="flex-input">
-                                <input type="number" step="0.1" name="pre_used_value" class="form-control" placeholder="حجم مصرف‌شده از قبل (اختیاری)" style="margin-bottom:0; flex:2;">
-                                <select name="pre_used_unit" style="flex:1;">
                                     <option value="GB">GB</option>
                                     <option value="MB">MB</option>
                                 </select>
@@ -549,7 +606,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     </div>
 
                     <div class="card">
-                        <h4><h4>📟 لاگ زنده و سراسری هسته شبکه</h4>
+                        <h4>📟 لاگ زنده و سراسری هسته شبکه</h4>
                         <div class="terminal-box" id="sys_terminal">در حال بارگذاری لاگ‌ها...</div>
                     </div>
                 </div>
@@ -633,6 +690,9 @@ def xray_live_log_sniffer():
                     save_database()
 
 sync_xray_core()
+# اجرای سرور بر روی پورت اختصاصی بک‌اند که توسط Nginx پروکسی معکوس می‌شود
 threading.Thread(target=lambda: HTTPServer(('127.0.0.1', 8086), SanaeiMobileXuiServer).serve_forever(), daemon=True).start()
 threading.Thread(target=xray_live_log_sniffer, daemon=True).start()
+
+# زنده نگه داشتن پایپ‌لاین در گیت‌هاب اکشنز به مدت ۵.۵ ساعت برای چرخه همگام‌سازی ماتریکس کلاستر داده
 time.sleep(19800)
