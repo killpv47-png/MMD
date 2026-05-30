@@ -458,11 +458,11 @@ jobs:
                                     try {{
                                         let controller = new AbortController();
                                         setTimeout(() => controller.abort(), 1800);
-                                        await fetch('https://' + ip + '/cdn-cgi/trace', { mode: 'no-cors', signal: controller.signal });
+                                        await fetch('https://' + ip + '/cdn-cgi/trace', {{ mode: 'no-cors', signal: controller.signal }});
                                         let duration = Date.now() - start;
                                         workingIps.push(ip);
-                                        output.value += ip + " (Ping: " + duration + "ms)\n";
-                                    }} catch(e) {}
+                                        output.value += ip + " (Ping: " + duration + "ms)\\n";
+                                    }} catch(e) {{}}
                                 }}
                                 statusText.innerText = "✅ تست تمام شد داداش! آی‌پی‌های تمیز بالا لیست شدند.";
                                 btn.disabled = false;
@@ -474,7 +474,7 @@ jobs:
                             }}
 
                             setInterval(loadLiveStats, 3000);
-                        </style>
+                        </script>
                     </head>
                     <body>
                         <div class="panel-container">
@@ -550,7 +550,6 @@ jobs:
                 self.send_response(404)
                 self.end_headers()
 
-        # سیستم مانیتورینگ انقلابی بر پایه اسنیف زنده فایل لاگ دسترسی هسته Xray
         def xray_live_log_sniffer():
             print("\n==============================================================")
             print("🛡️ SECURITY LOGIN CREDENTIALS FOR PANEL ACCESS")
@@ -558,14 +557,12 @@ jobs:
             print(f"🔑 PASSWORD : {PANEL_PASS}")
             print("==============================================================\n")
 
-            # باز کردن لاگ فایل به صورت Real-time و خواندن خطوط جدید
             while not os.path.exists(XRAY_LOG_PATH):
                 time.sleep(1)
 
             log_file = open(XRAY_LOG_PATH, "r")
-            log_file.seek(0, os.SEEK_END) # رفتن به انتهای فایل
+            log_file.seek(0, os.SEEK_END)
 
-            # ترد فرعی برای پاک کردن بازه‌ای سرعت‌ها در صورت عدم فعالیت
             def speed_resetter():
                 while True:
                     time.sleep(3)
@@ -586,25 +583,20 @@ jobs:
 
             threading.Thread(target=speed_resetter, daemon=True).start()
 
-            # موتور اسنیفر خطوط دسترسی برای تفکیک پهنای باند و مانیتورینگ زنده کاربران
             while True:
                 line = log_file.readline()
                 if not line:
                     time.sleep(0.2)
                     continue
 
-                # بررسی پکت‌های ارسالی کلاینت‌ها (نمونه پکت‌های معتبر سیستم پروکسی)
-                # فرمت لاگ داخلی اکس‌ری: [Info] یا پذیرش کانکشن از طرف کلاینت‌ها
                 for user_name in list(configs_db.keys()):
                     if user_name in line or configs_db[user_name]["uuid"] in line:
                         now = time.time()
                         configs_db[user_name]["status"] = "ONLINE"
                         configs_db[user_name]["last_active_time"] = now
                         
-                        # شبیه‌ساز حجم و سرعت واقعی بر مبنای کانکشن فعال (هر کانکشن حداقل 4KB دیتای زنده هدر دارد)
-                        # این مکانیزم کور بودن آمارهای تانل‌های ترافیکی را کاملاً برطرف می‌کند
                         configs_db[user_name]["used_bytes"] += 16384 
-                        configs_db[user_name]["down_speed"] = secrets.randbelow(350000) + 150000 # تولید رنج دانلود بر ثانیه واقعی زنده
+                        configs_db[user_name]["down_speed"] = secrets.randbelow(350000) + 150000
                         configs_db[user_name]["up_speed"] = secrets.randbelow(80000) + 20000
                         save_database()
 
