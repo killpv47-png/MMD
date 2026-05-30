@@ -514,7 +514,7 @@ jobs:
         threading.Thread(target=rigid_traffic_monitor, daemon=True).start()
         
         time.sleep(19800)
-PYTHON_EOF
+         PYTHON_EOF
         python3 -u engine_core.py
 
     - name: Pipeline Succession Chain Trigger
