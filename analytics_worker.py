@@ -266,37 +266,16 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"total_online": total_online, "users": response_data, "sys_logs": SYSTEM_LIVE_LOGS[-30:]}).encode('utf-8'))
             return
 
-        # 🚀 خروجی ساب مستقیم برای برنامه (v2rayNG / FoXray / NapsternetV) با کانفیگ فیک وضعیت حجم
         if url_path.startswith("sub/"):
             target_user = url_path.replace("sub/", "", 1)
             if target_user in configs_db:
                 u_data = configs_db[target_user]
                 check_expiration_and_limits()
-                
-                total = u_data["total_limit_bytes"]
-                rem_bytes = max(0, total - u_data["used_bytes"]) if total > 0 else 0
-                
-                now = int(time.time())
-                passed_seconds = now - u_data.get("created_at", now)
-                rem_seconds = max(0, u_data.get("expire_seconds", 2592000) - passed_seconds)
-                rem_d = int(rem_seconds // 86400)
-                rem_h = int((rem_seconds % 86400) // 3600)
-
                 c_ip = u_data.get("clean_ip", DEFAULT_CLEAN_IP)
                 
-                # ۱. کانفیگ اصلی کارآمد برای اینترنت
                 clean_link = f"vless://{u_data['uuid']}@{c_ip}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{target_user}_killpv2"
                 
-                # ۲. کانفیگ فیک راهنما که توی نرم‌افزار حجم و زمان باقی‌مانده را هر ۱۰ ثانیه موقع آپدیت نشون میده
-                fake_uuid = "00000000-0000-0000-0000-000000000000"
-                info_total = "Unlimited" if total == 0 else format_bytes(total).replace(" ", "")
-                info_rem = "Unlimited" if total == 0 else format_bytes(rem_bytes).replace(" ", "")
-                
-                fake_link = f"vless://{fake_uuid}@127.0.0.1:1080?encryption=none&type=ws#📊_باقی‌مانده:[{info_rem}]_از_[{info_total}]_⏳_زمان:[{rem_d}روز_و_{rem_h}ساعت]"
-                
-                # سرهم کردن لینک‌ها و رمزگذاری Base64 استاندارد ساب‌سکریپشن
-                sub_payload = f"{clean_link}\n{fake_link}\n"
-                encoded_payload = base64.b64encode(sub_payload.encode('utf-8')).decode('utf-8')
+                encoded_payload = base64.b64encode(f"{clean_link}\n".encode('utf-8')).decode('utf-8')
                 
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/plain; charset=utf-8')
@@ -565,7 +544,12 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     </div>
 
                     <div class="card">
-                        <h4>📟 لاگ زنده و سراسری هسته شبکه</h4>
+                        <h4>👑 نشان ملی شیر و خورشید ایران پایدار</h4>
+                        <div style="text-align:center; padding:10px; font-size:3.5rem; filter: drop-shadow(0 0 10px rgba(245,158,11,0.3));">🦁☀️</div>
+                    </div>
+
+                    <div class="card">
+                        <h4><h4>📟 لاگ زنده و سراسری هسته شبکه</h4>
                         <div class="terminal-box" id="sys_terminal">در حال بارگذاری لاگ‌ها...</div>
                     </div>
                 </div>
