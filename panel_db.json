@@ -1,0 +1,41 @@
+{
+    "Main_kill_pv2": {
+        "uuid": "b6a00fb0-460e-4323-96af-3ba2f48470ee",
+        "total_limit_bytes": 0,
+        "used_bytes": 0,
+        "clean_ip": "speed.cloudflare.com",
+        "status": "OFFLINE",
+        "last_active_time": 0,
+        "down_speed": 0,
+        "up_speed": 0,
+        "created_at": 1780172556,
+        "expire_seconds": 31536000,
+        "active": true
+    },
+    "TEST": {
+        "uuid": "af289596-d3f5-433f-b1ef-21591b5af0fb",
+        "total_limit_bytes": 214748364800,
+        "used_bytes": 11734973,
+        "clean_ip": "172.64.149.23",
+        "status": "OFFLINE",
+        "last_active_time": 1780172807.0580287,
+        "down_speed": 0,
+        "up_speed": 0,
+        "created_at": 1780172729,
+        "expire_seconds": 2592000,
+        "active": true
+    },
+    "Hhh": {
+        "uuid": "6cf47e56-ca0f-4080-aec8-1a628ea9ba6e",
+        "total_limit_bytes": 214748364800,
+        "used_bytes": 0,
+        "clean_ip": "speed.cloudflare.com",
+        "status": "OFFLINE",
+        "last_active_time": 0,
+        "down_speed": 0,
+        "up_speed": 0,
+        "created_at": 1780172773,
+        "expire_seconds": 2592000,
+        "active": true
+    }
+}
