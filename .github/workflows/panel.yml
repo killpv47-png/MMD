@@ -1,4 +1,4 @@
-name: kill_pv2 Sanaei Style X-UI - Mobile Optimized
+name: kill_pv2 Sanaei Style X-UI - Absolute Fix
 
 on:
   workflow_dispatch:
@@ -114,11 +114,11 @@ jobs:
         import threading
         import base64
         import uuid
-        from urllib.parse import parse_qs, urlparse
+        from urllib.parse import parse_qs
 
         CONFIG_PATH = "/usr/local/etc/xray/config.json"
         DB_PATH = "panel_db.json"
-        ONLINE_STRICT_TIMEOUT = 30 # بازه زمانی برای تشخیص زنده بودن کانکشن
+        DEFAULT_CLEAN_IP = "speed.cloudflare.com"
 
         with open('active_edge_host.txt', 'r') as f:
             tunnel_host = f.read().strip()
@@ -220,7 +220,7 @@ jobs:
                 
                 if action == 'create':
                     username = params.get('username', [''])[0].strip()
-                    gb_limit = float(params.get('gb_limit', [20])[0])
+                    gb_limit = float(params.get('gb_limit', [25])[0])
                     clean_ip = params.get('clean_ip', ['speed.cloudflare.com'])[0].strip()
                     if not clean_ip: clean_ip = "speed.cloudflare.com"
                     
@@ -261,7 +261,6 @@ jobs:
             def do_GET(self):
                 url_path = self.path.strip("/")
                 
-                # API برای بروزرسانی اطلاعات بدون پرش صفحه زنده کلاینت
                 if url_path == "api/stats":
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/json')
@@ -274,6 +273,10 @@ jobs:
                         total = v["total_limit_bytes"]
                         rem = max(0, total - v["used_bytes"])
                         pct = min(100, (v["used_bytes"] / total * 100)) if total > 0 else 0
+                        c_ip = v.get("clean_ip", DEFAULT_CLEAN_IP)
+                        
+                        # تولید دیتای زنده کانفیگ VLESS برای کپی مستقیم در مرورگر گوشی
+                        vless_config_str = f"vless://{v['uuid']}@{c_ip}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{k}_killpv2"
                         
                         response_data.append({
                             "username": k,
@@ -283,7 +286,8 @@ jobs:
                             "remaining": format_bytes(rem) if total > 0 else "نامحدود",
                             "progress": pct,
                             "down_speed": format_speed(v.get("down_speed", 0)),
-                            "up_speed": format_speed(v.get("up_speed", 0))
+                            "up_speed": format_speed(v.get("up_speed", 0)),
+                            "config_raw": vless_config_str
                         })
                     
                     final_payload = {"total_online": total_online, "users": response_data}
@@ -295,13 +299,16 @@ jobs:
                     if target_user in configs_db and configs_db[target_user].get("active", True):
                         u_data = configs_db[target_user]
                         c_ip = u_data.get("clean_ip", DEFAULT_CLEAN_IP)
-                        clean_link = f"vless://{u_data['uuid']}@{c_ip}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}&mux=1&vnextmux=1#{target_user}_CleanIP"
-                        regular_link = f"vless://{u_data['uuid']}@{tunnel_host}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&mux=1&vnextmux=1#{target_user}_Direct"
+                        clean_link = f"vless://{u_data['uuid']}@{c_ip}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{target_user}_Clean"
+                        regular_link = f"vless://{u_data['uuid']}@{tunnel_host}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0#{target_user}_Direct"
                         payload = f"{clean_link}\n{regular_link}\n"
+                        
+                        # رفع ایراد انکودینگ: اضافه کردن ساید کلینت استاندارد
                         encoded_payload = base64.b64encode(payload.encode('utf-8')).decode('utf-8')
                         
                         self.send_response(200)
                         self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
                         self.end_headers()
                         self.wfile.write(encoded_payload.encode('utf-8'))
                         return
@@ -314,7 +321,6 @@ jobs:
                     self.send_header('Content-Type', 'text/html; charset=utf-8')
                     self.end_headers()
                     
-                    # قالب مدرن، تمیز و فول ریسپانیو هماهنگ با پنل‌های سنایی و X-UI برای موبایل
                     html_content = f"""
                     <!DOCTYPE html>
                     <html lang="fa" dir="rtl">
@@ -330,9 +336,8 @@ jobs:
                             .header-board h2 {{ margin: 0; font-size: 1.4rem; color: #fff; }}
                             .status-box {{ display: inline-block; background: rgba(250,250,250,0.15); padding: 5px 12px; border-radius: 30px; font-size: 0.85rem; margin-top: 8px; }}
                             .card {{ background: var(--bg-card); border-radius: 16px; padding: 16px; margin-bottom: 15px; border: 1px solid #222f4c; }}
-                            .card h4 {{ margin: 0 0 12px 0; color: #38bdf8; font-size: 1.05rem; display: flex; align-items: center; gap: 6px; }}
+                            .card h4 {{ margin: 0 0 12px 0; color: #38bdf8; font-size: 1.05rem; }}
                             .form-control {{ width: 100%; padding: 10px; background: #0b0f19; border: 1px solid #2d3d5f; border-radius: 10px; color: #fff; margin-bottom: 10px; box-sizing: border-box; font-size: 0.9rem; outline: none; }}
-                            .form-control:focus {{ border-color: var(--accent); }}
                             .btn {{ width: 100%; padding: 11px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 0.95rem; }}
                             .btn-add {{ background: #10b981; color: white; }}
                             .user-row {{ background: #1a243d; border-radius: 12px; padding: 12px; margin-bottom: 10px; border: 1px solid #273659; }}
@@ -345,12 +350,14 @@ jobs:
                             .data-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 0.8rem; color: var(--text-p); border-top: 1px solid #273659; padding-top: 8px; }}
                             .p-bar-bg {{ width: 100%; background: #2d3d5f; height: 6px; border-radius: 10px; margin-top: 6px; overflow: hidden; }}
                             .p-bar-fill {{ background: var(--accent); height: 100%; width: 0%; transition: width 0.4s; }}
-                            .action-bar {{ display: flex; gap: 5px; margin-top: 10px; }}
-                            .action-bar button, .action-bar a {{ flex: 1; text-align: center; text-decoration: none; padding: 7px; border-radius: 6px; font-size: 0.78rem; font-weight: bold; border: none; cursor: pointer; color: white; }}
-                            .btn-sub {{ background: #3b82f6; }} .btn-tog {{ background: #f59e0b; color: black; }} .btn-del {{ background: #ef4444; }}
+                            .action-bar {{ display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }}
+                            .action-bar button, .action-bar a {{ flex: 1; min-width: 70px; text-align: center; padding: 8px 4px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; border: none; cursor: pointer; color: white; }}
+                            .btn-sub {{ background: #3b82f6; }} .btn-conf {{ background: #8b5cf6; }} .btn-tog {{ background: #f59e0b; color: black; }} .btn-del {{ background: #ef4444; }}
                         </style>
                         <script>
-                            // دریافت اطلاعات به صورت AJAX زنده بدون رفرش و به هم ریختن کیبورد موبایل
+                            // ذخیره‌سازی زنده کانفیگ‌ها در کلاینت برای کپی صاعقه‌ای
+                            let cachedConfigs = {{}};
+
                             async function loadLiveStats() {{
                                 try {{
                                     let res = await fetch('/api/stats');
@@ -369,11 +376,20 @@ jobs:
                                             row.querySelector('.u-dspeed').innerText = u.down_speed;
                                             row.querySelector('.u-uspeed').innerText = u.up_speed;
                                             row.querySelector('.p-bar-fill').style.width = u.progress + '%';
+                                            
+                                            cachedConfigs[u.username] = u.config_raw;
                                         }}
                                     }});
-                                }} catch(e) {{ console.log("Stats update skipped..."); }}
+                                }} catch(e) {{}}
                             }}
-                            setInterval(loadLiveStats, 8000);
+                            
+                            function copyConfig(user) {{
+                                if(cachedConfigs[user]) {{
+                                    navigator.clipboard.writeText(cachedConfigs[user]);
+                                    alert('📋 کانفیگ VLESS با موفقیت کپی شد داداش!');
+                                }}
+                            }}
+                            setInterval(loadLiveStats, 4000);
                         </script>
                     </head>
                     <body>
@@ -420,6 +436,7 @@ jobs:
                                         
                                         <div class="action-bar">
                                             <button class="btn-sub" onclick="navigator.clipboard.writeText('https://{tunnel_host}/sub/{user_name}'); alert('لینک ساب کپی شد داداش');">🔗 ساب</button>
+                                            <button class="btn-conf" onclick="copyConfig('{user_name}')">📋 کانفیگ</button>
                                             <form method="POST" action="/" style="flex:1; display:flex;"><input type="hidden" name="action" value="toggle"><input type="hidden" name="username" value="{user_name}"><button type="submit" class="btn-tog">⚙️ سوییچ</button></form>
                                             <form method="POST" action="/" style="flex:1; display:flex;" onsubmit="return confirm('حذف بشه داداش؟');"><input type="hidden" name="action" value="delete"><input type="hidden" name="username" value="{user_name}"><button type="submit" class="btn-del">🗑️ حذف</button></form>
                                         </div>
@@ -443,7 +460,7 @@ jobs:
         def rigid_traffic_monitor():
             last_check_time = time.time()
             while True:
-                time.sleep(7)
+                time.sleep(5)
                 now = time.time()
                 elapsed = now - last_check_time
                 if elapsed <= 0: elapsed = 1
@@ -461,11 +478,11 @@ jobs:
                         pass
 
                 db_changed = False
-                user_logs_summary = ""
                 
                 for user_name, user_data in configs_db.items():
                     downlink_bytes = 0
                     uplink_bytes = 0
+                    user_has_active_traffic = False
                     
                     for stat_item in api_stats_list:
                         metric_name = stat_item.get("name", "")
@@ -480,7 +497,6 @@ jobs:
                     total_current_bytes = downlink_bytes + uplink_bytes
                     byte_difference = total_current_bytes - user_data["xray_last_bytes"]
                     
-                    # محاسبه زنده سرعت دانلود و آپلود بر ثانیه
                     if byte_difference > 0:
                         configs_db[user_name]["used_bytes"] += byte_difference
                         configs_db[user_name]["down_speed"] = int((downlink_bytes - user_data.get("last_down", 0)) / elapsed)
@@ -491,7 +507,8 @@ jobs:
                     else:
                         configs_db[user_name]["down_speed"] = 0
                         configs_db[user_name]["up_speed"] = 0
-                        if now - user_data["last_active_time"] > ONLINE_STRICT_TIMEOUT:
+                        # مکانیزم اسنیفر جدید: اگر کاربر ترافیک زنده نداره ولی تایم اوت نگذشته آنلاین بمونه
+                        if now - user_data["last_active_time"] > 35:
                             if configs_db[user_name]["status"] != "OFFLINE":
                                 configs_db[user_name]["status"] = "OFFLINE"
                                 db_changed = True
@@ -505,9 +522,9 @@ jobs:
                 
                 last_check_time = now
 
-                print("\n==================== 📊 LIVE SANA-X LOGS ====================")
+                print("\n==================== 📊 LIVE FIX LOGS ====================")
                 print(f"🔗 CONTROL PANEL : https://{tunnel_host}")
-                print("==============================================================\n")
+                print("============================================================\n")
 
         sync_xray_core()
         threading.Thread(target=lambda: HTTPServer(('127.0.0.1', 8086), SanaeiMobileXuiServer).serve_forever(), daemon=True).start()
