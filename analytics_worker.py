@@ -18,7 +18,7 @@ DB_PATH = "panel_db.json"
 DEFAULT_CLEAN_IP = "speed.cloudflare.com"
 
 PANEL_USER = "admin"
-PANEL_PASS = "kill_pv2_panel"  # رمز عبور ثابت و اختصاصی تو داداش
+PANEL_PASS = "kill_pv2_panel"  # رمز عبور ثابت پنل تو داداش
 SESSION_TOKEN = secrets.token_hex(16)
 
 SYSTEM_LIVE_LOGS = []
@@ -249,16 +249,6 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                 save_database()
                 sync_xray_core()
                 
-        elif action == 'toggle':
-            username = params.get('username', [''])[0]
-            if username in configs_db:
-                configs_db[username]["active"] = not configs_db[username].get("active", True)
-                if configs_db[username]["active"]:
-                    configs_db[username]["created_at"] = int(time.time())
-                    configs_db[username]["status"] = "OFFLINE"
-                save_database()
-                sync_xray_core()
-                
         elif action == 'delete':
             username = params.get('username', [''])[0]
             if username in configs_db:
@@ -296,8 +286,6 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                 passed_seconds = int(time.time()) - v.get("created_at", int(time.time()))
                 rem_seconds = max(0, v.get("expire_seconds", 2592000) - passed_seconds)
                 
-                vless_config_str = f"vless://{v['uuid']}@{v.get('clean_ip', DEFAULT_CLEAN_IP)}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{k}_killpv2"
-                
                 response_data.append({
                     "username": k,
                     "status": v["status"] if v.get("active", True) else "DISABLED",
@@ -308,7 +296,6 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     "progress": pct,
                     "down_speed": format_speed(v.get("down_speed", 0)),
                     "up_speed": format_speed(v.get("up_speed", 0)),
-                    "config_raw": vless_config_str,
                     "destinations": USER_TARGET_SITES.get(k, [])[-12:]
                 })
             
@@ -406,7 +393,6 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                             let container = document.getElementById('user_list');
                             container.innerHTML = "";
                             data.users.forEach(u => {{
-                                // منطق جادویی لینک ساب ثابت و مستقل از تغییر آدرس تانل کلودفلر
                                 let stableSubUrl = window.location.protocol + "//" + window.location.host + "/sub/" + u.username;
                                 container.innerHTML += `
                                     <div class="user-row">
@@ -418,7 +404,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                                             حجم مصرفی: ${u.used} / کل: ${u.total} | زمان مانده: ${u.rem_days}
                                         </div>
                                         <div class="flex" style="margin-top:10px;">
-                                            <button class="btn-sub" onclick="navigator.clipboard.writeText('${stableSubUrl}'); alert('🔗 لینک ساب پایدار کپی شد داداش! با ریستارت عوض نمیشه.');">📋 کپی ساب پایدار</button>
+                                            <button class="btn-sub" onclick="navigator.clipboard.writeText('${stableSubUrl}'); alert('🔗 لینک ساب پایدار کپی شد داداش! با ریستارت عوض نمیشن.');">📋 کپی ساب پایدار</button>
                                             <form method="POST" action="/" onsubmit="return confirm('حذف بشه داداش؟');">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="username" value="${u.username}">
@@ -428,7 +414,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                                     </div>
                                 `;
                             }});
-                        } catch(e) {{}}
+                        } catch(e) {}
                     }}
                     setInterval(refreshStats, 3000);
                 </script>
