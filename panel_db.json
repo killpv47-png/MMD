@@ -8,7 +8,7 @@
         "last_active_time": 0,
         "down_speed": 0,
         "up_speed": 0,
-        "created_at": 1780172556,
+        "created_at": 1780217044,
         "expire_seconds": 31536000,
         "active": true
     },
@@ -80,14 +80,40 @@
     "DGDGGSGSG": {
         "uuid": "b6c1da7f-0a5d-426f-8eb3-0455c557d5d3",
         "total_limit_bytes": 4294967296,
-        "used_bytes": 61043105,
+        "used_bytes": 227583860,
         "clean_ip": "104.17.2.1",
         "status": "OFFLINE",
-        "last_active_time": 1780202005.6270585,
+        "last_active_time": 1780231850.1598659,
         "down_speed": 0,
         "up_speed": 0,
         "created_at": 1780201945,
         "expire_seconds": 2592000,
         "active": true
+    },
+    "6GB": {
+        "uuid": "d70f1c03-3c80-47a3-a171-b0ddfd97c51a",
+        "total_limit_bytes": 6442450944,
+        "used_bytes": 779922654,
+        "clean_ip": "104.17.96.13",
+        "status": "OFFLINE",
+        "last_active_time": 1780231181.4299042,
+        "down_speed": 0,
+        "up_speed": 0,
+        "created_at": 1780215886,
+        "expire_seconds": 2592000,
+        "active": false
+    },
+    "5GB": {
+        "uuid": "63a471eb-c399-491a-a936-768f1ae1d9aa",
+        "total_limit_bytes": 6442450944,
+        "used_bytes": 640761229,
+        "clean_ip": "104.17.96.13",
+        "status": "OFFLINE",
+        "last_active_time": 1780228380.6250968,
+        "down_speed": 0,
+        "up_speed": 0,
+        "created_at": 1780215908,
+        "expire_seconds": 2592000,
+        "active": false
     }
 }
