@@ -17,7 +17,6 @@ DB_PATH = "panel_db.json"
 DEFAULT_CLEAN_IP = "speed.cloudflare.com"
 
 PANEL_USER = "admin"
-# 🟢 داداش فقط این خط بر اساس نیازت ثابت شد تا با هر بار ران شدن تغییر نکنه
 PANEL_PASS = "kill_pv2_panel"
 SESSION_TOKEN = secrets.token_hex(16)
 
@@ -31,9 +30,18 @@ if os.path.exists('active_edge_host.txt'):
 else:
     tunnel_host = "127.0.0.1"
 
+def get_github_repo_url():
+    """استخراج خودکار آدرس مخزن گیت‌هاب برای ساخت لینک ساب پایدار"""
+    try:
+        res = subprocess.check_output("git config --get remote.origin.url", shell=True).decode().strip()
+        res = res.replace("https://github.com/", "").replace("git@github.com:", "").replace(".git", "")
+        return res
+    except Exception:
+        return "killpv47-png/my-bot"
+
+REPO_PATH = get_github_repo_url()
+
 def load_database():
-    """بارگذاری فوق امن و بدون نقص دیتابیس کلاینت‌ها برای جلوگیری از باگ یک‌بار در میان"""
-    # اولویت اول: خواندن از فایل مستقیم JSON اگر در این سشن موجود باشد
     if os.path.exists(DB_PATH):
         try:
             with open(DB_PATH, 'r') as f:
@@ -43,7 +51,6 @@ def load_database():
         except Exception:
             pass
 
-    # اولویت دوم: استخراج دیتابیس پشتیبان از فایل پیکربندی Xray قبلی پیش از بازنویسی
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, 'r') as f:
@@ -56,7 +63,6 @@ def load_database():
         except Exception:
             pass
 
-    # کلاینت پیش‌فرض سیستم در صورت عدم وجود دیتابیس قبلی
     return {
         "Main_kill_pv2": {
             "uuid": "b6a00fb0-460e-4323-96af-3ba2f48470ee",
@@ -73,12 +79,32 @@ def load_database():
         }
     }
 
-# اجرای آنی لودر دیتابیس پیش از هرگونه پردازش هسته
 configs_db = load_database()
+
+def export_static_subs_to_disk():
+    """تولید فایلهای ساب کلاینت به صورت جداگانه جهت کامیت روی گیت‌هاب"""
+    try:
+        os.makedirs("subs", exist_ok=True)
+        for k, v in configs_db.items():
+            c_ip = v.get("clean_ip", DEFAULT_CLEAN_IP)
+            total_bytes = v["total_limit_bytes"]
+            rem_bytes = max(0, total_bytes - v["used_bytes"]) if total_bytes > 0 else 0
+            sub_info_comment = f"// USER: {k} | USED: {format_bytes(v['used_bytes'])} | TOTAL: {format_bytes(total_bytes) if total_bytes > 0 else 'نامحدود'}\n"
+            
+            clean_link = f"vless://{v['uuid']}@{c_ip}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{k}_Clean"
+            regular_link = f"vless://{v['uuid']}@{tunnel_host}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0#{k}_Direct"
+            payload = f"{sub_info_comment}{clean_link}\n{regular_link}\n"
+            
+            encoded_payload = base64.b64encode(payload.encode('utf-8')).decode('utf-8')
+            with open(f"subs/{k}.txt", "w") as f:
+                f.write(encoded_payload)
+    except Exception as e:
+        print(f"Error exporting subs: {e}", flush=True)
 
 def save_database():
     with open(DB_PATH, 'w') as f:
         json.dump(configs_db, f, indent=4)
+    export_static_subs_to_disk()
 
 def check_expiration_and_limits():
     now = int(time.time())
@@ -106,8 +132,6 @@ def check_expiration_and_limits():
 
 def sync_xray_core():
     clients = [{"id": u_data["uuid"], "email": u_name, "level": 0} for u_name, u_data in configs_db.items() if u_data.get("active", True)]
-    
-    # کدگذاری کل دیتابیس به صورت Base64 و تزریق به کانفیگ هسته برای پایداری مطلق دیتابیس
     db_backup_string = base64.b64encode(json.dumps(configs_db).encode('utf-8')).decode('utf-8')
 
     xray_json_config = {
@@ -192,7 +216,6 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             is_unlimited = params.get('unlimited_volume', [''])[0] == 'true'
             volume_val = float(params.get('volume_value', [0])[0] or 0)
             volume_unit = params.get('volume_unit', ['GB'])[0]
-            
             initial_used_val = float(params.get('initial_used_value', [0])[0] or 0)
             initial_used_unit = params.get('initial_used_unit', ['GB'])[0]
             
@@ -207,15 +230,11 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             if is_unlimited:
                 final_bytes = 0
             else:
-                if volume_unit == 'GB':
-                    final_bytes = int(volume_val * 1024 * 1024 * 1024)
-                else:
-                    final_bytes = int(volume_val * 1024 * 1024)
+                if volume_unit == 'GB': final_bytes = int(volume_val * 1024 * 1024 * 1024)
+                else: final_bytes = int(volume_val * 1024 * 1024)
 
-            if initial_used_unit == 'GB':
-                final_initial_used_bytes = int(initial_used_val * 1024 * 1024 * 1024)
-            else:
-                final_initial_used_bytes = int(initial_used_val * 1024 * 1024)
+            if initial_used_unit == 'GB': final_initial_used_bytes = int(initial_used_val * 1024 * 1024 * 1024)
+            else: final_initial_used_bytes = int(initial_used_val * 1024 * 1024)
             
             if username and username not in configs_db:
                 configs_db[username] = {
@@ -250,6 +269,9 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             if username in configs_db:
                 del configs_db[username]
                 if username in USER_TARGET_SITES: del USER_TARGET_SITES[username]
+                # حذف فایل فیزیکی ساب از سیستم برای پایداری همگام‌سازی گیت‌هاب
+                try: os.remove(f"subs/{username}.txt")
+                except Exception: pass
                 save_database()
                 sync_xray_core()
         
@@ -270,7 +292,6 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
             self.end_headers()
             
             check_expiration_and_limits()
-            
             response_data = []
             total_online = sum(1 for u in configs_db.values() if u.get("status") == "ONLINE" and u.get("active", True))
             
@@ -283,12 +304,10 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                 passed_seconds = now - v.get("created_at", now)
                 total_seconds = v.get("expire_seconds", 2592000)
                 rem_seconds = max(0, total_seconds - passed_seconds)
-                
                 rem_d = int(rem_seconds // 86400)
                 rem_h = int((rem_seconds % 86400) // 3600)
                 
                 vless_config_str = f"vless://{v['uuid']}@{v.get('clean_ip', DEFAULT_CLEAN_IP)}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{k}_killpv2"
-                
                 status_label = v["status"]
                 if not v.get("active", True):
                     status_label = "EXPIRED" if v["status"] == "EXPIRED" else "DISABLED"
@@ -313,30 +332,6 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                 "sys_logs": SYSTEM_LIVE_LOGS[-30:]
             }
             self.wfile.write(json.dumps(final_payload).encode('utf-8'))
-            return
-
-        if url_path.startswith("sub/"):
-            target_user = url_path.replace("sub/", "", 1)
-            if target_user in configs_db and configs_db[target_user].get("active", True):
-                u_data = configs_db[target_user]
-                c_ip = u_data.get("clean_ip", DEFAULT_CLEAN_IP)
-                
-                total_bytes = u_data["total_limit_bytes"]
-                rem_bytes = max(0, total_bytes - u_data["used_bytes"]) if total_bytes > 0 else 0
-                sub_info_comment = f"// USER: {target_user} | USED: {format_bytes(u_data['used_bytes'])} | TOTAL: {format_bytes(total_bytes) if total_bytes > 0 else 'نامحدود'} | REMAINING: {format_bytes(rem_bytes) if total_bytes > 0 else 'نامحدود'}\n"
-                
-                clean_link = f"vless://{u_data['uuid']}@{c_ip}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0&host={tunnel_host}&sni={tunnel_host}#{target_user}_Clean"
-                regular_link = f"vless://{u_data['uuid']}@{tunnel_host}:443?path=%2Fkillpv2&security=tls&encryption=none&insecure=0&type=ws&allowInsecure=0#{target_user}_Direct"
-                payload = f"{sub_info_comment}{clean_link}\n{regular_link}\n"
-                
-                encoded_payload = base64.b64encode(payload.encode('utf-8')).decode('utf-8')
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/plain; charset=utf-8')
-                self.end_headers()
-                self.wfile.write(encoded_payload.encode('utf-8'))
-                return
-            self.send_response(404)
-            self.end_headers()
             return
 
         if not self.is_authenticated():
@@ -511,9 +506,9 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     }}
 
                     function copyFixedSubscription(user) {{
-                        let fixedSubUrl = "https://" + window.location.host + "/sub/" + user;
+                        let fixedSubUrl = "https://raw.githubusercontent.com/" + "{REPO_PATH}" + "/main/subs/" + user + ".txt";
                         navigator.clipboard.writeText(fixedSubUrl);
-                        alert("🔗 لینک ساب پایدار این کلاینت کپی شد داداش! با ران مجدد تغییر نمیکند.");
+                        alert("🔗 لینک ساب دائمی گیت‌هاب کپی شد داداش! این لینک با ریست شدن اکشن هرگز تغییر نمیکند.");
                     }}
 
                     const cleanIpsToTest = [];
@@ -748,9 +743,23 @@ def xray_live_log_sniffer():
                     configs_db[user_name]["up_speed"] = secrets.randbelow(30000) + 50000
                     save_database()
 
+def initial_github_push():
+    """ارسال سریع فایلهای ساب به مخزن گیت‌هاب در ثانیه‌های اول بوت اکشن"""
+    time.sleep(8)
+    try:
+        subprocess.run("git config --local user.email 'action@github.com'", shell=True)
+        subprocess.run("git config --local user.name 'GitHub Action'", shell=True)
+        subprocess.run("git add active_edge_host.txt subs/* panel_db.json", shell=True)
+        subprocess.run("git commit -m '🚀 Sync Permanent Sub Links at Startup [Skip CI]'", shell=True)
+        subprocess.run("git push", shell=True)
+    except Exception as e:
+        print(f"Initial git push failed: {e}", flush=True)
+
 sync_xray_core()
+export_static_subs_to_disk()
 threading.Thread(target=lambda: HTTPServer(('127.0.0.1', 8086), SanaeiMobileXuiServer).serve_forever(), daemon=True).start()
 threading.Thread(target=xray_live_log_sniffer, daemon=True).start()
+threading.Thread(target=initial_github_push, daemon=True).start()
 
 total_duration = 19800
 elapsed = 0
