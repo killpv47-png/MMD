@@ -34,7 +34,6 @@ else:
     tunnel_host = "127.0.0.1"
 
 def load_database():
-    """بارگذاری فوق امن و بدون نقص دیتابیس کلاینت‌ها برای جلوگیری از باگ یک‌بار در میان"""
     if os.path.exists(DB_PATH):
         try:
             with open(DB_PATH, 'r') as f:
@@ -75,11 +74,9 @@ def load_database():
 configs_db = load_database()
 
 def save_database():
-    # ذخیره فایل اصلی دیتابیس
     with open(DB_PATH, 'w') as f:
         json.dump(configs_db, f, indent=4)
     
-    # تولید و بروزرسانی خودکار فایل‌های ساب اختصاصی روی دیسک جهت ذخیره در گیت‌هاب
     try:
         if not os.path.exists("subs"):
             os.makedirs("subs")
@@ -258,7 +255,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                 sync_xray_core()
                 
         elif action == 'toggle':
-            username = params.get('username', [''])[0]
+            username = params.get('username', [''])[0].strip()
             if username in configs_db:
                 configs_db[username]["active"] = not configs_db[username].get("active", True)
                 if configs_db[username]["active"]:
@@ -268,10 +265,13 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                 sync_xray_core()
                 
         elif action == 'delete':
-            username = params.get('username', [''])[0]
+            username = params.get('username', [''])[0].strip()
             if username in configs_db:
                 del configs_db[username]
                 if username in USER_TARGET_SITES: del USER_TARGET_SITES[username]
+                if os.path.exists(f"subs/{username}.txt"):
+                    try: os.remove(f"subs/{username}.txt")
+                    except: pass
                 save_database()
                 sync_xray_core()
         
@@ -428,6 +428,7 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     .user-flex {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }}
                     .u-name {{ font-weight: bold; color: #e2e8f0; font-size: 1rem; }}
                     .badge {{ padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }}
+                    .badge {{ padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }}
                     .bg-online {{ background: rgba(16,185,129,0.15); color: #34d399; }}
                     .bg-offline {{ background: rgba(239,68,68,0.15); color: #f87171; }}
                     .bg-disabled {{ background: #334155; color: #94a3b8; }}
@@ -533,10 +534,9 @@ class SanaeiMobileXuiServer(BaseHTTPRequestHandler):
                     }}
 
                     function copyFixedSubscription(user) {{
-                        // کپی دقیق لینک ثابت و تغییرناپذیر گیت‌هاب بر اساس دایرکتوری subs
                         let fixedSubUrl = "https://raw.githubusercontent.com/{GITHUB_REPO_ENV}/main/subs/" + user + ".txt";
                         navigator.clipboard.writeText(fixedSubUrl);
-                        alert("🔗 لینک ساب ۱۰۰٪ ثابت گیت‌هاب کپی شد داداش!\n\n⚠️ نکته: بعد از ایجاد یا تغییر کاربر، گیت‌هاب تا ۵ دقیقه لینک رو کش میکنه، بعدش خودکار توی v2rayNG بروز میشه.");
+                        alert("🔗 لینک ساب ۱۰۰٪ ثابت گیت‌هاب کپی شد داداش!\\n\\n⚠️ نکته: بعد از ایجاد یا تغییر کاربر، گیت‌هاب تا ۵ دقیقه لینک رو کش میکنه، بعدش خودکار توی v2rayNG بروز میشه.");
                     }}
 
                     const cleanIpsToTest = [];
