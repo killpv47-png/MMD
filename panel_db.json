@@ -15,12 +15,12 @@
     "kill_pv2": {
         "uuid": "ea31de5b-ae1b-45f2-a26c-adc6861b9151",
         "total_limit_bytes": 0,
-        "used_bytes": 1868434840,
+        "used_bytes": 1909186224,
         "clean_ip": "172.64.149.23",
-        "status": "ONLINE",
-        "last_active_time": 1780262585.17668,
-        "down_speed": 917889,
-        "up_speed": 54808,
+        "status": "OFFLINE",
+        "last_active_time": 1781100273.0488324,
+        "down_speed": 0,
+        "up_speed": 0,
         "created_at": 1780242922,
         "expire_seconds": 864000000000000000,
         "active": true
