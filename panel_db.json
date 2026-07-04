@@ -4,13 +4,13 @@
         "total_limit_bytes": 1073741824,
         "used_bytes": 53341863,
         "clean_ip": "172.64.149.23",
-        "status": "OFFLINE",
+        "status": "EXPIRED",
         "last_active_time": 1780243404.4751391,
         "down_speed": 0,
         "up_speed": 0,
         "created_at": 1780242883,
         "expire_seconds": 2592000,
-        "active": true
+        "active": false
     },
     "kill_pv2": {
         "uuid": "ea31de5b-ae1b-45f2-a26c-adc6861b9151",
